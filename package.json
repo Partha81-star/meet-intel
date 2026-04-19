@@ -1,0 +1,42 @@
+{
+  "name": "meetintel",
+  "version": "1.0.0",
+  "description": "AI-Powered Live Meeting Intelligence System",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:renderer": "cd renderer && npm run dev",
+    "dev:electron": "npx wait-on http://localhost:3000 && npx electron .",
+    "build:renderer": "cd renderer && npm run build",
+    "build": "npm run build:renderer && electron-builder",
+    "start": "npx electron ."
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "electron": "^41.2.1",
+    "electron-builder": "^26.8.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.meetintel.app",
+    "productName": "MeetIntel",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/out/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+    "python.defaultInterpreterPath": "d:\\MeetIntel\\backend\\venv\\Scripts\\python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": false,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.extraPaths": [
+        "d:\\MeetIntel\\backend"
+    ],
+    "[python]": {
+        "editor.formatOnSave": true
+    }
+}

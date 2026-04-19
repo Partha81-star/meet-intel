@@ -1,0 +1,169 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Global Design Tokens ─────────────────────────────────────────────────── */
+:root {
+  --color-surface:       #0a0a0f;
+  --color-surface-50:    #13131a;
+  --color-surface-100:   #1a1a2e;
+  --color-surface-200:   #22223b;
+  --color-surface-300:   #2d2d44;
+  --color-brand:         #6366f1;
+  --color-brand-glow:    rgba(99, 102, 241, 0.35);
+  --color-accent-cyan:   #06b6d4;
+  --color-accent-purple: #a855f7;
+  --color-accent-amber:  #f59e0b;
+  --color-accent-green:  #10b981;
+  --color-accent-red:    #ef4444;
+  --glass-bg:            rgba(255, 255, 255, 0.04);
+  --glass-border:        rgba(255, 255, 255, 0.08);
+  --glass-hover:         rgba(255, 255, 255, 0.07);
+}
+
+/* ─── Base ──────────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-surface);
+  color: #f1f5f9;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
+  overflow: hidden; /* Electron full-screen layout */
+}
+
+/* ─── Custom Scrollbar ──────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  {
+  background: rgba(99, 102, 241, 0.4);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.7); }
+
+/* ─── Glassmorphism Card ────────────────────────────────────────────────────── */
+.glass-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 1rem;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.glass-card:hover {
+  background: var(--glass-hover);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+/* ─── Glow Effects ──────────────────────────────────────────────────────────── */
+.glow-brand  { box-shadow: 0 0 20px var(--color-brand-glow); }
+.glow-cyan   { box-shadow: 0 0 15px rgba(6, 182, 212, 0.3); }
+.glow-purple { box-shadow: 0 0 15px rgba(168, 85, 247, 0.3); }
+.glow-green  { box-shadow: 0 0 15px rgba(16, 185, 129, 0.3); }
+.glow-red    { box-shadow: 0 0 15px rgba(239, 68, 68, 0.3); }
+
+/* ─── Recording Pulse ───────────────────────────────────────────────────────── */
+@keyframes recording-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(1.2); }
+}
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-accent-red);
+  animation: recording-pulse 1.4s ease-in-out infinite;
+}
+
+/* ─── Transcript Token ──────────────────────────────────────────────────────── */
+.transcript-interim {
+  color: rgba(241, 245, 249, 0.45);
+  border-bottom: 1px dashed rgba(99, 102, 241, 0.4);
+}
+
+.transcript-final {
+  color: #f1f5f9;
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* ─── Action Item Highlight ─────────────────────────────────────────────────── */
+@keyframes highlightIn {
+  0%   { background: rgba(99, 102, 241, 0.25); }
+  100% { background: transparent; }
+}
+
+.action-item-new {
+  animation: highlightIn 2s ease-out forwards;
+  border-radius: 0.5rem;
+}
+
+/* ─── Debt Badge ────────────────────────────────────────────────────────────── */
+.debt-badge {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(239, 68, 68, 0.15));
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* ─── Status Indicators ─────────────────────────────────────────────────────── */
+.status-dot-active   { background: #10b981; animation: recording-pulse 2s infinite; }
+.status-dot-inactive { background: #4b5563; }
+.status-dot-paused   { background: #f59e0b; }
+
+/* ─── Gradient Text ─────────────────────────────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(135deg, #818cf8, #06b6d4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-warm {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Panel Divider ─────────────────────────────────────────────────────────── */
+.panel-divider {
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(255,255,255,0.08) 20%,
+    rgba(255,255,255,0.08) 80%,
+    transparent
+  );
+}
+
+/* ─── Slide Thumbnail ───────────────────────────────────────────────────────── */
+.slide-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.slide-thumb:hover {
+  transform: scale(1.03);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* ─── Fade-in Animations ────────────────────────────────────────────────────── */
+@keyframes fadeIn        { from { opacity: 0; }               to { opacity: 1; } }
+@keyframes slideInRight  { from { transform: translateX(16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slideInBottom { from { transform: translateY(8px);  opacity: 0; } to { transform: translateY(0);  opacity: 1; } }
+
+.animate-fade-in        { animation: fadeIn       0.4s ease-out; }
+.animate-slide-right    { animation: slideInRight 0.3s ease-out; }
+.animate-slide-bottom   { animation: slideInBottom 0.3s ease-out; }

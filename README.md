@@ -6,7 +6,7 @@
 [Features](#-features) · [Architecture](#-architecture) · [Quick Start](#-quick-start) · [Configuration](#-configuration) · [Demo Guide](#-demo-guide)
 
 # Demo Video Links - https://youtu.be/XZaed-ELOhA (Demo-1)  
-https://youtu.be/_oWE-5FNv_s (Demo-2)
+# https://youtu.be/_oWE-5FNv_s (Demo-2)
 
 ## 🎯 What It Does
 

@@ -1,14 +1,5 @@
 # MeetIntel — AI-Powered Live Meeting Intelligence
 
-<div align="center">
-
-![MeetIntel](https://img.shields.io/badge/MeetIntel-v1.0.0-6d28d9?style=for-the-badge&logo=electron&logoColor=white)
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![Electron](https://img.shields.io/badge/Electron-41-47848F?style=for-the-badge&logo=electron&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
-![Gemini](https://img.shields.io/badge/Gemini_1.5-Flash%20%2F%20Pro-4285F4?style=for-the-badge&logo=google&logoColor=white)
-![Deepgram](https://img.shields.io/badge/Deepgram-Nova--2-13EF93?style=for-the-badge&logo=deepgram&logoColor=white)
 
 **A desktop application that listens to your live meetings, identifies speakers, extracts task assignments in real-time, and generates comprehensive meeting reports — all powered by Google Gemini and Deepgram.**
 

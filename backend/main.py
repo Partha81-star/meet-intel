@@ -321,7 +321,10 @@ async def _demo_mode(websocket: WebSocket, sid: str):
             (names[-1], 'We should review the release checklist before Friday.'),
             (names[0], f'{names[-1]}, please update the API documentation by Friday.'),
         ]
+        delivered = min(len(_transcripts.get(sid, [])), len(samples))
         for index, (speaker, text) in enumerate(samples):
+            if index < delivered:
+                continue
             while _sessions[sid]['status'] == 'paused':
                 await asyncio.sleep(0.2)
             if _sessions[sid]['status'] != 'active':

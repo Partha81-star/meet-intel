@@ -12,7 +12,10 @@ fs.mkdirSync(target, { recursive: true });
 function sync() {
   for (const name of ['src', 'public', 'package.json', 'package-lock.json', 'next.config.js', 'tailwind.config.js', 'postcss.config.js', '.env.local']) {
     const file = path.join(source, name);
-    if (fs.existsSync(file)) fs.cpSync(file, path.join(target, name), { recursive: true });
+    if (fs.existsSync(file)) fs.cpSync(file, path.join(target, name), {
+      recursive: true,
+      filter: (from, to) => fs.statSync(from).isDirectory() || !fs.existsSync(to) || !fs.readFileSync(from).equals(fs.readFileSync(to)),
+    });
   }
 }
 sync();

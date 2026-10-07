@@ -6,11 +6,12 @@ import { Play, Square, Pause, PlayCircle } from 'lucide-react';
  * MeetingControls — Start / Pause / Stop buttons.
  * Now properly wires the Pause button to onPause.
  */
-export default function MeetingControls({ sessionActive, sessionPaused, onStart, onPause, onStop }) {
+export default function MeetingControls({ sessionActive, sessionPaused, onStart, onPause, onStop, disabled }) {
   if (!sessionActive) {
     return (
       <button
         id="btn-start-session"
+        disabled={disabled}
         onClick={onStart}
         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-all duration-200 glow-brand hover:scale-105 active:scale-95"
         aria-label="Start meeting session"
@@ -26,6 +27,7 @@ export default function MeetingControls({ sessionActive, sessionPaused, onStart,
       {/* Pause / Resume toggle */}
       <button
         id="btn-pause-session"
+        disabled={disabled}
         onClick={onPause}
         className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-200 hover:bg-surface-300 text-white/70 text-sm font-medium transition-all border border-white/10 hover:border-accent-amber/40 hover:text-accent-amber active:scale-95"
         aria-label={sessionPaused ? 'Resume session' : 'Pause session'}
@@ -41,6 +43,7 @@ export default function MeetingControls({ sessionActive, sessionPaused, onStart,
       {/* Stop + Debrief */}
       <button
         id="btn-stop-session"
+        disabled={disabled}
         onClick={onStop}
         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-red/20 hover:bg-accent-red/30 border border-accent-red/40 text-accent-red text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
         aria-label="Stop meeting session and generate debrief"

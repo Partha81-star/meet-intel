@@ -1,9 +1,10 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@config '../../tailwind.config.js';
 
 /* ─── Global Design Tokens ─────────────────────────────────────────────────── */
 :root {
+  --font-inter: 'Segoe UI', Arial, sans-serif;
+  --font-mono: Consolas, monospace;
   --color-surface:       #0a0a0f;
   --color-surface-50:    #13131a;
   --color-surface-100:   #1a1a2e;
@@ -20,6 +21,8 @@
   --glass-border:        rgba(255, 255, 255, 0.08);
   --glass-hover:         rgba(255, 255, 255, 0.07);
 }
+
+button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ─── Base ──────────────────────────────────────────────────────────────────── */
 *,

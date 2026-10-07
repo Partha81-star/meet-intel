@@ -25,7 +25,7 @@ const SAMPLE_RATE      = 16000;  // Deepgram expects 16 kHz
 const FRAME_SIZE       = 4096;   // ScriptProcessor buffer size
 const SCREEN_INTERVAL  = 30000;  // ms between screen captures
 
-export default function CaptureEngine({ sessionActive, onAudioChunk, sessionId }) {
+export default function CaptureEngine({ sessionActive, onAudioChunk, sessionId, onError }) {
   const streamRef          = useRef(null);
   const audioContextRef    = useRef(null);
   const processorRef       = useRef(null);
@@ -33,6 +33,8 @@ export default function CaptureEngine({ sessionActive, onAudioChunk, sessionId }
   const screenIntervalRef  = useRef(null);
   const canvasRef          = useRef(null);
   const videoRef           = useRef(null);
+  const streamsRef = useRef([]);
+  const firstFrameRef = useRef(null);
 
   // ─── Convert Float32 PCM → Int16 ArrayBuffer ──────────────────────────────
   const float32ToInt16 = useCallback((float32Array) => {
@@ -135,7 +137,11 @@ export default function CaptureEngine({ sessionActive, onAudioChunk, sessionId }
     };
 
     mixer.connect(processor);
-    processor.connect(audioCtx.destination);
+    const silent = audioCtx.createGain();
+    silent.gain.value = 0;
+    processor.connect(silent);
+    silent.connect(audioCtx.destination);
+    await audioCtx.resume();
     console.log('[CaptureEngine] Mixed Audio Pipeline Active');
   }, [float32ToInt16, onAudioChunk]);
 
@@ -177,16 +183,22 @@ export default function CaptureEngine({ sessionActive, onAudioChunk, sessionId }
 
   // ─── Main effect: start/stop on sessionActive toggle ─────────────────────
   useEffect(() => {
-    if (!sessionActive) {
+    const cleanup = () => {
       // Teardown
       processorRef.current?.disconnect();
-      audioContextRef.current?.close();
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      if (audioContextRef.current?.state !== 'closed') audioContextRef.current?.close().catch(() => {});
+      streamsRef.current.forEach(stream => stream?.getTracks().forEach(track => track.stop()));
+      streamsRef.current = [];
       clearInterval(screenIntervalRef.current);
+      clearTimeout(firstFrameRef.current);
+      if (videoRef.current) videoRef.current.srcObject = null;
 
       streamRef.current       = null;
       audioContextRef.current = null;
       processorRef.current    = null;
+    };
+    if (!sessionActive) {
+      cleanup();
       return;
     }
 
@@ -202,10 +214,7 @@ export default function CaptureEngine({ sessionActive, onAudioChunk, sessionId }
         }
 
         streamRef.current = streams.desktopStream || streams.micStream;
-
-        // Wait for Deepgram WebSocket handshake to complete before streaming
-        await new Promise(r => setTimeout(r, 1500));
-        if (!active) return;
+        streamsRef.current = [streams.desktopStream, streams.micStream];
 
         // Wire mixed audio pipeline
         await startAudioPipeline(streams);
@@ -223,14 +232,17 @@ export default function CaptureEngine({ sessionActive, onAudioChunk, sessionId }
         // Screen frame interval
         screenIntervalRef.current = setInterval(captureFrame, SCREEN_INTERVAL);
         // Capture first frame immediately
-        setTimeout(captureFrame, 2000);
+        firstFrameRef.current = setTimeout(captureFrame, 2000);
       } catch (err) {
+        cleanup();
+        onError?.(`Microphone capture failed: ${err.message}`);
         console.error('[CaptureEngine] Failed to start capture:', err);
       }
     })();
 
     return () => {
       active = false;
+      cleanup();
     };
   }, [sessionActive, getMediaStreams, startAudioPipeline, captureFrame]);
 

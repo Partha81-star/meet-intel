@@ -30,7 +30,7 @@ import httpx
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -52,6 +52,27 @@ _transcripts:    dict = {}   # session_id → [segments]
 _action_items:   dict = {}   # session_id → [items]
 _speaker_maps:   dict = {}   # session_id → { speakerId: name }
 _slide_contexts: dict = {}   # session_id → [slides]  (includes screenshot links)
+from services import store
+_pipeline_tasks: set = set()
+_session_pipeline_tasks: dict = {}
+_vision_engines: dict = {}
+
+
+def _checkpoint(sid):
+    store.save(_sessions[sid], _transcripts.get(sid, []), _action_items.get(sid, []),
+               _speaker_maps.get(sid, {}), _slide_contexts.get(sid, []))
+
+
+def _background(coro):
+    task = asyncio.create_task(coro)
+    _pipeline_tasks.add(task)
+    task.add_done_callback(_pipeline_tasks.discard)
+    return task
+
+
+def _current():
+    return next((s for s in reversed(list(_sessions.values()))
+                 if s['status'] in ('active', 'paused')), None)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -187,7 +208,23 @@ async def trigger_zapier(payload: dict) -> bool:
 async def lifespan(app: FastAPI):
     # Prints ✅/❌ connection status for every service to the terminal
     cfg.print_startup_status()
+    store.initialize()
+    for payload in store.load():
+        session = payload['session']
+        sid = session['id']
+        if session['status'] in ('active', 'paused'):
+            session['status'] = 'interrupted'
+        _sessions[sid] = session
+        _transcripts[sid] = payload['transcripts']
+        _action_items[sid] = payload['actions']
+        _speaker_maps[sid] = payload['speakers']
+        _slide_contexts[sid] = payload['slides']
+        _checkpoint(sid)
     yield
+    if _pipeline_tasks:
+        await asyncio.gather(*list(_pipeline_tasks), return_exceptions=True)
+    for sid in _sessions:
+        _checkpoint(sid)
     log.info("🛑 MeetIntel backend shutting down")
 
 
@@ -211,9 +248,15 @@ app.add_middleware(
 # ══════════════════════════════════════════════════════════════════════════════
 @app.get("/health", tags=["meta"])
 async def health():
+    try:
+        store.healthy()
+    except Exception:
+        return JSONResponse({'status': 'error', 'database': 'unavailable'}, status_code=503)
     return {
         "status": "ok",
         "service": "MeetIntel",
+        "database": "connected",
+        "mode": "demo" if cfg.DEMO_MODE else "live",
         "version": "1.1.0",
         "env":     cfg.APP_ENV,
         "time":    datetime.now(timezone.utc).isoformat(),
@@ -232,6 +275,86 @@ async def health():
     }
 
 
+@app.get('/sessions', tags=['session'])
+async def session_history():
+    return {'sessions': [{k: v for k, v in session.items() if not k.startswith('_')}
+                         for session in reversed(list(_sessions.values()))]}
+
+
+@app.get('/sessions/{sid}', tags=['session'])
+async def session_detail(sid: str):
+    if sid not in _sessions:
+        raise HTTPException(404, 'Session not found')
+    return {'session': _sessions[sid], 'transcripts': _transcripts.get(sid, []),
+            'action_items': _action_items.get(sid, []), 'slides': _slide_contexts.get(sid, [])}
+
+
+class ActionUpdate(BaseModel):
+    done: bool
+
+
+@app.patch('/sessions/{sid}/actions/{item_id}', tags=['session'])
+async def update_action(sid: str, item_id: str, body: ActionUpdate):
+    for item in _action_items.get(sid, []):
+        if item.get('id') == item_id:
+            item.update(done=body.done, status='resolved' if body.done else 'unresolved')
+            _checkpoint(sid)
+            return item
+    raise HTTPException(404, 'Action item not found')
+
+
+@app.delete('/sessions/{sid}/actions/{item_id}', tags=['session'])
+async def delete_action(sid: str, item_id: str):
+    if not any(item.get('id') == item_id for item in _action_items.get(sid, [])):
+        raise HTTPException(404, 'Action item not found')
+    _action_items[sid] = [item for item in _action_items[sid] if item.get('id') != item_id]
+    _checkpoint(sid)
+    return {'deleted': item_id}
+
+
+async def _demo_mode(websocket: WebSocket, sid: str):
+    """Explicit synthetic demo; consumes no microphone and calls no paid APIs."""
+    async def emit():
+        names = _sessions[sid].get('participants') or ['Admin', 'Team member']
+        samples = [
+            (names[0], 'Welcome. This is a synthetic MeetIntel demo meeting.'),
+            (names[-1], 'We should review the release checklist before Friday.'),
+            (names[0], f'{names[-1]}, please update the API documentation by Friday.'),
+        ]
+        for index, (speaker, text) in enumerate(samples):
+            while _sessions[sid]['status'] == 'paused':
+                await asyncio.sleep(0.2)
+            if _sessions[sid]['status'] != 'active':
+                return
+            chunk = {'type': 'transcript', 'speaker': speaker, 'transcript': text,
+                     'is_final': True, 'timestamp': datetime.now(timezone.utc).isoformat(), 'demo': True}
+            _transcripts[sid].append(chunk)
+            await websocket.send_json(chunk)
+            if index == 2 and not any(a.get('demo') for a in _action_items[sid]):
+                item = {'id': str(uuid.uuid4()), 'title': 'Update API documentation',
+                        'assignee': names[-1], 'due': 'Friday', 'priority': 'medium',
+                        'context': text, 'done': False, 'demo': True}
+                _action_items[sid].append(item)
+                await websocket.send_json({'type': 'action_item', **item})
+            _checkpoint(sid)
+            await asyncio.sleep(1.5)
+        while True:
+            await asyncio.sleep(10)
+            await websocket.send_json({'type': 'ping'})
+
+    task = asyncio.create_task(emit())
+    try:
+        while True:
+            message = await websocket.receive()
+            if message['type'] == 'websocket.disconnect':
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SESSION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -243,6 +366,8 @@ class SessionMeta(BaseModel):
 
 @app.post("/session/start", tags=["session"])
 async def session_start(meta: SessionMeta = SessionMeta()):
+    if _current():
+        raise HTTPException(409, 'A session is already active. Stop it before starting another.')
     sid = str(uuid.uuid4())
     _sessions[sid]       = {
         "id": sid, "title": meta.title,
@@ -255,6 +380,7 @@ async def session_start(meta: SessionMeta = SessionMeta()):
     _action_items[sid]   = []
     _speaker_maps[sid]   = {}
     _slide_contexts[sid] = []
+    _checkpoint(sid)
     log.info("[Session] Started: %s  title=%r  admin=%r  participants=%r",
              sid, meta.title, meta.admin, meta.participants)
     return _sessions[sid]
@@ -277,16 +403,17 @@ async def session_stop():
     Every step degrades gracefully — a failure never blocks the HTTP response.
     """
     for sid, s in _sessions.items():
-        if s["status"] == "active":
+        if s["status"] in ("active", "paused"):
             s["status"]   = "ended"
             s["ended_at"] = datetime.now(timezone.utc).isoformat()
+            _checkpoint(sid)
             log.info("[Session] Stopped: %s", sid)
 
             # Sequential pipeline: debrief → embed → Supabase → Zapier
-            asyncio.create_task(_end_of_meeting_pipeline(sid, s))
+            _session_pipeline_tasks[sid] = _background(_end_of_meeting_pipeline(sid, s))
 
             # Parallel: slower per-item embedding in the persistence service
-            asyncio.create_task(_persist_session_embeddings(sid, s))
+            # Supabase persistence runs after the summary is generated below.
 
             return s
     return JSONResponse({"error": "No active session"}, status_code=404)
@@ -328,7 +455,7 @@ async def _end_of_meeting_pipeline(sid: str, session: dict) -> None:
     embedding: list[float] | None = None
 
     # ── Step 1: Gemini 1.5 Pro debrief ───────────────────────────────────────
-    if cfg.has_gemini and segments:
+    if cfg.has_gemini and segments and not cfg.DEMO_MODE:
         try:
             from engine import DebriefEngine
             debrief = DebriefEngine()
@@ -337,7 +464,7 @@ async def _end_of_meeting_pipeline(sid: str, session: dict) -> None:
             # Cache so /debrief/generate also sees it if called manually later
             if summary:
                 session["_debrief_summary"] = summary
-                session["_debrief_full"]    = result
+                session["_debrief_full"]    = {k: v for k, v in result.items() if k != 'session'}
             log.info("[Pipeline] Step 1 ✓  Gemini debrief generated (%d words)",
                      len((summary or "").split()))
         except Exception as exc:
@@ -346,7 +473,7 @@ async def _end_of_meeting_pipeline(sid: str, session: dict) -> None:
         log.debug("[Pipeline] Step 1 –  Skipped (no Gemini key or empty transcript)")
 
     # ── Step 2: Embed the summary (text-embedding-004, 768-dim) ──────────────
-    if cfg.has_gemini and summary:
+    if cfg.has_gemini and summary and not cfg.DEMO_MODE:
         try:
             from engine import DebtEngine
             embedder  = DebtEngine()
@@ -392,6 +519,8 @@ async def _end_of_meeting_pipeline(sid: str, session: dict) -> None:
         "word_count":               word_count,
     }
     fired = await trigger_zapier(zapier_payload)
+    await _persist_session_embeddings(sid, session)
+    _checkpoint(sid)
     log.info("[Pipeline] Step 4 %s  Zapier webhook", "✓" if fired else "✗ (non-fatal)")
 
 
@@ -424,6 +553,7 @@ async def session_pause():
     for s in _sessions.values():
         if s["status"] in ("active", "paused"):
             s["status"] = "paused" if s["status"] == "active" else "active"
+            _checkpoint(s['id'])
             return s
     return JSONResponse({"error": "No active session"}, status_code=404)
 
@@ -431,7 +561,7 @@ async def session_pause():
 @app.get("/session/current", tags=["session"])
 async def session_current():
     for s in reversed(list(_sessions.values())):
-        if s["status"] == "active":
+        if s["status"] in ("active", "paused"):
             return s
     return {"status": "idle"}
 
@@ -445,7 +575,7 @@ async def session_actions():
     # Prefer last ended session; fall back to active
     target_sid = None
     for sid, s in reversed(list(_sessions.items())):
-        if s["status"] in ("ended", "active"):
+        if s["status"] in ("ended", "active", "paused", "interrupted"):
             target_sid = sid
             break
     if not target_sid:
@@ -487,11 +617,25 @@ async def _ws_handler(websocket: WebSocket) -> None:
       Emits { type: 'error', code: 'DEEPGRAM_FAILURE' } then falls back to mock.
       The client stays connected — no reconnect loop triggered.
     """
+    origin = websocket.headers.get('origin')
+    if origin and origin not in cfg.cors_origins_list and origin != 'null':
+        await websocket.close(code=1008)
+        return
+    sid = websocket.query_params.get('session_id')
+    if not sid or sid not in _sessions or _sessions[sid]['status'] != 'active':
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     conn_id = str(uuid.uuid4())[:8]
     log.info("[WS:%s] Client connected", conn_id)
 
-    await _deepgram_mode(websocket, conn_id)
+    if cfg.DEMO_MODE:
+        await _demo_mode(websocket, sid)
+    elif not cfg.has_deepgram:
+        await websocket.send_json({'type': 'error', 'message': 'DEEPGRAM_API_KEY is required for live transcription.'})
+        await websocket.close(code=1008)
+    else:
+        await _deepgram_mode(websocket, conn_id)
 
 
 @app.websocket("/ws/transcribe")
@@ -539,13 +683,13 @@ async def _deepgram_mode(websocket: WebSocket, conn_id: str):
 
             # Resolve session ID dynamically — avoids the timing race where
             # /session/start is called a few ms AFTER the WS connects
-            sid = next(
-                (s["id"] for s in _sessions.values() if s["status"] == "active"),
-                None
-            )
+            sid = websocket.query_params.get('session_id')
+            if not sid or _sessions.get(sid, {}).get('status') != 'active':
+                return
 
             if sid:
                 _transcripts.setdefault(sid, []).append(chunk)
+                _checkpoint(sid)
 
             # Action Item Detection — two triggers:
             # 1. Periodic: every N final segments (catches background assignments)
@@ -565,13 +709,13 @@ async def _deepgram_mode(websocket: WebSocket, conn_id: str):
             )
 
             if should_detect and len(window) >= 2:
-                asyncio.create_task(
+                    _background(
                     _detect_actions(action_engine, list(window), websocket, sid)
                 )
 
             # Identity Discovery (Name Mapping) — every 5 final segments
             if segment_count % 5 == 0 and sid:
-                asyncio.create_task(
+                _background(
                     _infer_identities(list(window), websocket, sid)
                 )
 
@@ -583,8 +727,11 @@ async def _deepgram_mode(websocket: WebSocket, conn_id: str):
             ping_task = asyncio.create_task(_ping_loop(websocket))
             try:
                 while True:
-                    data = await websocket.receive_bytes()
-                    await dg_session.send(data)
+                    message = await websocket.receive()
+                    if message['type'] == 'websocket.disconnect':
+                        break
+                    if message.get('bytes') and _sessions.get(websocket.query_params.get('session_id'), {}).get('status') == 'active':
+                        await dg_session.send(message['bytes'])
             except WebSocketDisconnect:
                 log.info("[WS:%s] Client disconnected cleanly", conn_id)
             except Exception as recv_exc:
@@ -635,6 +782,7 @@ If unknown, do not include it.
 async def _infer_identities(window: list[str], websocket: WebSocket, sid: str):
     if not window or not sid: return
     try:
+        from engine import _get_gemini
         text   = "\n".join(window[-20:])
         model  = _get_gemini(cfg.GEMINI_TEXT_MODEL)
         prompt = _IDENTITY_PROMPT.format(transcript=text)
@@ -658,6 +806,7 @@ async def _infer_identities(window: list[str], websocket: WebSocket, sid: str):
                     needs_emit = True
             
             if needs_emit:
+                _checkpoint(sid)
                 await websocket.send_json({
                     "type": "identity_update",
                     "map": current_map
@@ -696,6 +845,7 @@ async def _detect_actions(
                 exists = any(a.get("id") == item.get("id") for a in _action_items[session_id])
                 if not exists:
                     _action_items[session_id].append(item)
+                    _checkpoint(session_id)
     except Exception as exc:
         log.error("[ActionDetector] Non-fatal error: %s", exc)
 
@@ -719,7 +869,7 @@ async def vision_analyze(body: FrameRequest):
     runs perceptual hash gating, then Gemini 1.5 Pro Vision analysis.
     Graceful degradation: returns mock data if Gemini is unavailable.
     """
-    if not cfg.has_gemini:
+    if cfg.DEMO_MODE:
         return {
             "slide_changed": True,
             "id":            str(uuid.uuid4()),
@@ -730,10 +880,13 @@ async def vision_analyze(body: FrameRequest):
             "captured_at":   datetime.now(timezone.utc).isoformat(),
             "mode":          "mock",
         }
+    if not cfg.has_gemini:
+        return {'slide_changed': False, 'mode': 'unavailable', 'error': 'GOOGLE_API_KEY is not configured'}
 
     try:
         from engine import VisionEngine
-        ve     = VisionEngine()
+        key = body.session_id or 'default'
+        ve = _vision_engines.setdefault(key, VisionEngine())
         result = await ve.analyze(body.frame, body.session_id)
     except Exception as exc:
         # Graceful degradation: vision failure must not crash transcription
@@ -753,6 +906,7 @@ async def vision_analyze(body: FrameRequest):
             # Attach the frame to the slide context for post-meeting screenshot links
             result["frame"] = body.frame
             _slide_contexts[sid].append(result)
+            _checkpoint(sid)
 
     return result
 
@@ -766,10 +920,12 @@ class DebtQueryRequest(BaseModel):
 
 @app.post("/debt/query", tags=["debt"])
 async def debt_query(body: DebtQueryRequest):
-    if not cfg.has_gemini or not cfg.has_supabase:
+    if cfg.DEMO_MODE or not cfg.has_gemini or not cfg.has_supabase:
         return {
-            "items": [_mock_debt_item() for _ in range(2)],
-            "mode":  "mock",
+            "items": [dict(item, meeting_title=s.get('title'), meeting_id=sid)
+                      for sid, s in _sessions.items() if s['status'] in ('ended', 'interrupted')
+                      for item in _action_items.get(sid, []) if not item.get('done')],
+            "mode":  "database",
         }
 
     try:
@@ -786,7 +942,7 @@ async def debt_query(body: DebtQueryRequest):
 # DEBRIEF — Gemini 1.5 Pro (quality > speed for final debrief)
 # ══════════════════════════════════════════════════════════════════════════════
 @app.post("/debrief/generate", tags=["debrief"])
-async def debrief_generate():
+async def debrief_generate(session_id: str | None = None):
     """
     Generates a structured post-meeting debrief using Gemini 1.5 PRO.
     Pro is used here (not Flash) because the debrief is a one-shot,
@@ -800,44 +956,37 @@ async def debrief_generate():
         (s for s in reversed(list(_sessions.values()))), None
     )
 
+    if session_id:
+        session = _sessions.get(session_id)
     if not session:
         return JSONResponse({"error": "No session found"}, status_code=404)
 
     sid      = session["id"]
+    task = _session_pipeline_tasks.get(sid)
+    if task and not task.done():
+        await asyncio.shield(task)
     segments = _transcripts.get(sid, [])
     items    = _action_items.get(sid, [])
+    if session.get('_debrief_full'):
+        return {**session['_debrief_full'], 'action_items': items,
+                'session': {k: v for k, v in session.items() if not k.startswith('_')}}
 
-    if not cfg.has_gemini:
+    if cfg.DEMO_MODE or not cfg.has_gemini:
         # Mock debrief for demo mode
         return {
             "version":    "1.0",
             "session":    session,
-            "summary":    "The team aligned on Q3 roadmap priorities, identified a critical auth bug blocking the next release, and scheduled a Thursday deployment window with DevOps.",
-            "key_decisions": [
-                "Ship Feature A by end of Q3",
-                "Hotfix auth bug before the next release",
-                "Thursday deployment slot confirmed with DevOps",
-            ],
-            "risks": [
-                "Auth bug may delay release if not resolved by Wednesday",
-                "API docs are still out of date after v2 launch",
-            ],
-            "action_items": items or [
-                _mock_action_item("Create Jira ticket for auth bug", "Alice"),
-                _mock_action_item("Schedule stakeholder sync for Tuesday", "Bob"),
-            ],
-            "next_steps": [
-                "Alice to create Jira ticket for auth bug by EOD",
-                "Bob to schedule stakeholder sync for next Tuesday",
-                "DevOps to confirm Thursday deployment window",
-                "Update API documentation with new v2 endpoints",
-            ],
+            "summary":    ('Demo meeting: synthetic transcript and action items for setup verification.' if cfg.DEMO_MODE else 'AI summary unavailable. Configure GOOGLE_API_KEY to summarize this meeting.'),
+            "key_decisions": [],
+            "risks": [],
+            "action_items": items,
+            "next_steps": [item['title'] for item in items if not item.get('done')],
             "transcript_segments": len(segments),
             "word_count": sum(
                 len(s.get("transcript", s.get("text", "")).split())
                 for s in segments
             ),
-            "mode": "mock",
+            "mode": "demo" if cfg.DEMO_MODE else "unavailable",
         }
 
     try:
@@ -849,6 +998,8 @@ async def debrief_generate():
         summary = result.get("summary")
         if summary:
             session["_debrief_summary"] = summary
+            session['_debrief_full'] = {k: v for k, v in result.items() if k != 'session'}
+            _checkpoint(sid)
 
         # Add metadata if not present from engine
         if "transcript_segments" not in result:

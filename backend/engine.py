@@ -38,7 +38,7 @@ _gemini_models: dict = {}
 def _get_gemini(model_name: str):
     """Return a cached genai.GenerativeModel for the given model name."""
     if model_name not in _gemini_models:
-        import google.generativeai as genai
+        from services import gemini_client as genai
         if not cfg.has_gemini:
             raise RuntimeError(
                 "GOOGLE_API_KEY is not set. "
@@ -299,7 +299,7 @@ class VisionEngine:
             return {"slide_changed": False, "hamming_dist": dist}
 
         import asyncio
-        import google.generativeai as genai
+        from services import gemini_client as genai
 
         if not cfg.has_gemini:
             raise RuntimeError("GOOGLE_API_KEY is not set.")
@@ -376,7 +376,7 @@ class DebtEngine:
         Uses the low-level genai.embed_content call (not GenerativeModel).
         """
         import asyncio
-        import google.generativeai as genai
+        from services import gemini_client as genai
 
         api_key = cfg.GOOGLE_API_KEY or ""
         genai.configure(api_key=api_key)
@@ -398,7 +398,7 @@ class DebtEngine:
     async def embed_query(self, text: str) -> list[float]:
         """Embed a query (uses RETRIEVAL_QUERY task type for better retrieval accuracy)."""
         import asyncio
-        import google.generativeai as genai
+        from services import gemini_client as genai
 
         api_key = cfg.GOOGLE_API_KEY or ""
         genai.configure(api_key=api_key)

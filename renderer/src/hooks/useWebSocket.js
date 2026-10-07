@@ -22,6 +22,7 @@ export function useWebSocket(url, {
   onSlideContext,
   onDebtItem,
   onIdentityUpdate,
+  onError,
   enabled = false,
 } = {}) {
   const wsRef         = useRef(null);
@@ -32,7 +33,7 @@ export function useWebSocket(url, {
 
   // Store all handlers in refs so they never trigger reconnects
   const handlersRef = useRef({});
-  handlersRef.current = { onTranscript, onActionItem, onSlideContext, onDebtItem, onIdentityUpdate };
+  handlersRef.current = { onTranscript, onActionItem, onSlideContext, onDebtItem, onIdentityUpdate, onError };
 
   // Keep enabledRef in sync
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
@@ -78,6 +79,7 @@ export function useWebSocket(url, {
             case 'identity_update': h.onIdentityUpdate?.(msg.map); break;
             case 'ping':            ws.send(JSON.stringify({ type: 'pong' })); break;
             case 'error':
+              h.onError?.(msg.message);
               console.error('[WS] Backend error:', msg.message);
               break;
             default:

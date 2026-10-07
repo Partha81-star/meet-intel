@@ -4,12 +4,16 @@
   "description": "AI-Powered Live Meeting Intelligence System",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
-    "dev:renderer": "cd renderer && npm run dev",
+    "dev": "powershell -ExecutionPolicy Bypass -File scripts/start.ps1",
+    "dev:renderer": "node scripts/renderer.cjs dev",
     "dev:electron": "npx wait-on http://localhost:3000 && npx electron .",
-    "build:renderer": "cd renderer && npm run build",
+    "build:renderer": "node scripts/renderer.cjs desktop",
     "build": "npm run build:renderer && electron-builder",
-    "start": "npx electron ."
+    "start": "npx electron .",
+    "setup": "powershell -ExecutionPolicy Bypass -File scripts/setup.ps1",
+    "dev:desktop": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "test:backend": "python -m unittest discover -s backend -p test_*.py",
+    "build:web": "node scripts/renderer.cjs build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

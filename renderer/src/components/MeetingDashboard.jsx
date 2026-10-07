@@ -21,7 +21,7 @@ import MeetingControls  from './MeetingControls';
 import StatusBar        from './StatusBar';
 import DebriefModal     from './DebriefModal';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { WS_URL }       from '../lib/constants';
+import { API_BASE, websocketUrl } from '../lib/constants';
 import { Brain, LayoutDashboard } from 'lucide-react';
 
 export default function MeetingDashboard() {
@@ -35,10 +35,50 @@ export default function MeetingDashboard() {
   const [debrief,        setDebrief]        = useState(null);
   const [activeTab,      setActiveTab]      = useState('transcript');
   const ipcBound = useRef(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState('loading');
+  const [models, setModels] = useState({});
+  const [history, setHistory] = useState([]);
+  const [meetingTitle, setMeetingTitle] = useState('Team sync');
+  const [participantNames, setParticipantNames] = useState('Parth Bhad, Aryan Karpe, Aaditya Hingmire');
+  const [adminName, setAdminName] = useState('Aaditya Hingmire');
+
+  const request = useCallback(async (path, options = {}) => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...options, headers: { 'Content-Type': 'application/json', ...options.headers },
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || data.error || `Request failed (${response.status})`);
+    return data;
+  }, []);
+
+  const refreshHistory = useCallback(async () => {
+    const data = await request('/sessions');
+    setHistory(data.sessions || []);
+  }, [request]);
+
+  useEffect(() => {
+    request('/health').then(data => { setMode(data.mode); setModels(data.models || {}); }).catch(err => {
+      setError(`Backend unavailable: ${err.message}`); setMode('offline');
+    });
+    refreshHistory().catch(err => setError(err.message));
+  }, [request, refreshHistory]);
+
+  const restoreMeeting = async id => {
+    try {
+      const data = await request(`/sessions/${id}`);
+      setSessionId(id); setTranscript(data.transcripts); setActionItems(data.action_items);
+      setSlides(data.slides); setDebrief(null);
+      setSessionActive(['active', 'paused'].includes(data.session.status));
+      setSessionPaused(data.session.status === 'paused');
+    } catch (err) { setError(err.message); }
+  };
 
   // ── WebSocket connection to FastAPI ────────────────────────────────────────
-  const { connected, sendAudioChunk } = useWebSocket(WS_URL, {
+  const { connected, sendAudioChunk } = useWebSocket(websocketUrl(sessionId), {
     enabled: sessionActive,
+    onError: setError,
     onTranscript: useCallback((chunk) => {
       setTranscript((prev) => {
         if (chunk.is_final) {
@@ -125,85 +165,64 @@ export default function MeetingDashboard() {
 
   // ── Session controls ───────────────────────────────────────────────────────
   const handleStart = useCallback(async () => {
-    const metadata = {
-      title:        `Meeting — ${new Date().toLocaleString()}`,
-      admin:        'Aaditya Hingmire',
-      participants: ['Parth Bhad', 'Aryan Karpe', 'Aaditya Hingmire'],
-    };
-
-    // Notify backend (via IPC in Electron, or direct HTTP fallback)
-    if (typeof window !== 'undefined' && window.electronAPI) {
-      await window.electronAPI.startSession(metadata).catch(console.warn);
-    } else {
-      fetch('http://127.0.0.1:8000/session/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(metadata),
-      }).catch(console.warn);
-    }
-
-    setSessionId(`session_${Date.now()}`);
-    setTranscript([]);
-    setActionItems([]);
-    setSlides([]);
-    setDebtItems([]);
-    setDebrief(null);
-    setSessionPaused(false);
-    setSessionActive(true);
-    setActiveTab('transcript');
-  }, []);
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      const participants = participantNames.split(',').map(name => name.trim()).filter(Boolean);
+      if (!meetingTitle.trim() || !adminName.trim() || !participants.length) {
+        throw new Error('Enter a meeting title, organizer, and at least one participant.');
+      }
+      const metadata = { title: meetingTitle.trim(), admin: adminName.trim(), participants };
+      const data = window.electronAPI
+        ? await window.electronAPI.startSession(metadata)
+        : await request('/session/start', { method: 'POST', body: JSON.stringify(metadata) });
+      if (!data.id) throw new Error(data.error || 'Could not start the session');
+      setSessionId(data.id); setTranscript([]); setActionItems([]); setSlides([]);
+      setDebtItems([]); setDebrief(null); setSessionPaused(false);
+      setSessionActive(true); setActiveTab('transcript');
+      await refreshHistory();
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }, [busy, meetingTitle, adminName, participantNames, request, refreshHistory]);
 
   const handlePause = useCallback(async () => {
-    if (typeof window !== 'undefined' && window.electronAPI) {
-      await window.electronAPI.pauseSession().catch(console.warn);
-    }
-    setSessionPaused((p) => !p);
-  }, []);
+    try {
+      const data = await request('/session/pause', { method: 'POST' });
+      setSessionPaused(data.status === 'paused');
+    } catch (err) { setError(err.message); }
+  }, [request]);
 
   const handleStop = useCallback(async () => {
-    setSessionActive(false);
-    setSessionPaused(false);
-
-    const BACKEND = 'http://127.0.0.1:8000';
-
+    if (busy) return;
+    setBusy(true); setError('');
     try {
-      if (typeof window !== 'undefined' && window.electronAPI) {
-        // Electron path: stop + generate debrief via IPC
-        await window.electronAPI.stopSession().catch(console.warn);
-        await window.electronAPI.generateDebrief().catch(console.warn);
-      } else {
-        // Browser dev fallback
-        await fetch(`${BACKEND}/session/stop`, { method: 'POST' }).catch(console.warn);
-        const debriefRes = await fetch(`${BACKEND}/debrief/generate`, { method: 'POST' });
-        if (debriefRes.ok) {
-          const data = await debriefRes.json();
-          setDebrief(data);
-        }
-      }
-    } catch (e) {
-      console.error('[Dashboard] Stop error:', e);
-    }
+      await request('/session/stop', { method: 'POST' });
+      setSessionActive(false); setSessionPaused(false);
+      const data = await request(`/debrief/generate?session_id=${encodeURIComponent(sessionId)}`, { method: 'POST' });
+      setDebrief(data);
+      const detail = await request(`/sessions/${sessionId}`);
+      setActionItems(detail.action_items);
+      await refreshHistory();
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }, [busy, sessionId, request, refreshHistory]);
 
-    // After stopping, always fetch the complete action items from backend
-    // This catches any tasks that were missed during the live session
+  const toggleAction = async id => {
+    const item = actionItems.find(action => action.id === id);
     try {
-      await new Promise(r => setTimeout(r, 2000)); // let backend pipeline finish
-      const res = await fetch(`${BACKEND}/session/actions`);
-      if (res.ok) {
-        const data = await res.json();
-        const backendItems = data.action_items || [];
-        if (backendItems.length > 0) {
-          setActionItems(prev => {
-            const existingIds = new Set(prev.map(i => i.id));
-            const newItems    = backendItems.filter(i => !existingIds.has(i.id));
-            return [...prev, ...newItems.map(i => ({ ...i, isNew: true }))];
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('[Dashboard] Could not fetch final actions:', e);
-    }
-  }, []);
+      const updated = await request(`/sessions/${sessionId}/actions/${id}`, {
+        method: 'PATCH', body: JSON.stringify({ done: !item.done }),
+      });
+      setActionItems(items => items.map(action => action.id === id ? updated : action));
+    } catch (err) { setError(err.message); }
+  };
+
+  const removeAction = async id => {
+    try {
+      await request(`/sessions/${sessionId}/actions/${id}`, { method: 'DELETE' });
+      setActionItems(items => items.filter(item => item.id !== id));
+    } catch (err) { setError(err.message); }
+  };
 
   const tabs = [
     { id: 'transcript', label: 'Actions',      badge: actionItems.filter((i) => !i.done).length },
@@ -238,6 +257,8 @@ export default function MeetingDashboard() {
         </div>
 
         <StatusBar
+          mode={mode}
+          models={models}
           connected={connected}
           sessionActive={sessionActive}
           sessionPaused={sessionPaused}
@@ -245,6 +266,7 @@ export default function MeetingDashboard() {
         />
 
         <MeetingControls
+          disabled={busy || mode === 'loading' || mode === 'offline'}
           sessionActive={sessionActive}
           sessionPaused={sessionPaused}
           onStart={handleStart}
@@ -253,11 +275,34 @@ export default function MeetingDashboard() {
         />
       </header>
 
+      <div className="px-6 py-3 border-b border-white/10 space-y-2">
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <span className={mode === 'demo' ? 'text-amber-300' : 'text-emerald-300'}>
+            {mode === 'demo' ? 'Demo mode · synthetic meeting · microphone off' : mode === 'live' ? 'Live mode · microphone permission required' : 'Connecting to backend…'}
+          </span>
+          {busy && <span role="status">Processing…</span>}
+          <label className="ml-auto">Meeting history
+            <select aria-label="Meeting history" className="ml-2 bg-surface-100 rounded px-2 py-1 max-w-64"
+              value={sessionId || ''} disabled={sessionActive || busy}
+              onChange={event => event.target.value && restoreMeeting(event.target.value)}>
+              <option value="">Select a meeting</option>
+              {history.map(meeting => <option key={meeting.id} value={meeting.id}>{meeting.title} · {meeting.status}</option>)}
+            </select>
+          </label>
+        </div>
+        {!sessionActive && <div className="flex flex-wrap gap-3 text-xs">
+          <label>Title <input aria-label="Meeting title" className="bg-surface-100 rounded px-2 py-1" value={meetingTitle} onChange={e => setMeetingTitle(e.target.value)} /></label>
+          <label>Organizer <input aria-label="Organizer" className="bg-surface-100 rounded px-2 py-1" value={adminName} onChange={e => setAdminName(e.target.value)} /></label>
+          <label className="flex-1">Participants <input aria-label="Participants" className="bg-surface-100 rounded px-2 py-1 w-full sm:w-80" value={participantNames} onChange={e => setParticipantNames(e.target.value)} /></label>
+        </div>}
+        {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+      </div>
+
       {/* ── Main layout ──────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* Left: Live Transcript (always visible) */}
-        <div className="flex flex-col w-[420px] flex-shrink-0 border-r border-white/5">
+        <div className="flex flex-col w-[38%] min-w-[240px] flex-shrink-0 border-r border-white/5">
           <div className="px-4 pt-4 pb-2 flex items-center gap-2">
             <LayoutDashboard className="w-4 h-4 text-brand-400" />
             <span className="text-sm font-medium text-white/80">Live Transcript</span>
@@ -303,7 +348,7 @@ export default function MeetingDashboard() {
           {/* Tab content */}
           <div className="flex-1 overflow-hidden">
             {activeTab === 'transcript' && (
-              <ActionItemsPanel items={actionItems} setItems={setActionItems} />
+              <ActionItemsPanel items={actionItems} setItems={setActionItems} onToggle={toggleAction} onRemove={removeAction} />
             )}
             {activeTab === 'slides' && (
               <SlideGallery slides={slides} />
@@ -321,7 +366,8 @@ export default function MeetingDashboard() {
 
       {/* ── Hidden: CaptureEngine (pure logic, renders nothing visible) ─── */}
       <CaptureEngine
-        sessionActive={sessionActive && !sessionPaused}
+        sessionActive={sessionActive && !sessionPaused && mode === 'live' && connected}
+        onError={setError}
         onAudioChunk={sendAudioChunk}
         sessionId={sessionId}
       />

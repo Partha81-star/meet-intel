@@ -35,7 +35,7 @@ const path = require('path');
 const { registerIpcHandlers } = require('./ipcHandlers');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const isDev        = process.env.NODE_ENV !== 'production';
+const isDev        = !app.isPackaged && process.env.NODE_ENV !== 'production';
 const BACKEND_BASE = process.env.BACKEND_URL || 'http://127.0.0.1:8000';
 const RENDERER_URL = isDev
   ? 'http://localhost:3000'

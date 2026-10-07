@@ -18,6 +18,7 @@ Import pattern (use everywhere in the backend):
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from functools import lru_cache
 from typing import Optional
 
@@ -30,7 +31,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # ══════════════════════════════════════════════════════════════════════════════
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file          = ".env",
+        env_file          = Path(__file__).resolve().parent / ".env",
         env_file_encoding = "utf-8",
         case_sensitive    = False,   # GOOGLE_API_KEY == google_api_key
         extra             = "ignore",
@@ -81,6 +82,8 @@ class Settings(BaseSettings):
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8000
     APP_ENV:      str = "development"
+    DEMO_MODE: bool = True
+    DATABASE_URL: str = "sqlite:///" + (Path(__file__).resolve().parent / "meetintel.db").as_posix()
     CORS_ORIGINS: str = "http://localhost:3000,app://.,file://"
 
     # ── Deepgram Model Config ─────────────────────────────────────────────────
@@ -94,10 +97,10 @@ class Settings(BaseSettings):
     # GEMINI_DEBRIEF_MODEL → engine.py DebriefEngine.generate()   (Pro:   quality post-meeting)
     # GEMINI_VISION_MODEL  → engine.py VisionEngine.analyze()     (Pro:   multimodal slide analysis)
     # GEMINI_EMBED_MODEL   → engine.py DebtEngine.embed/embed_query() (text-embedding-004 RAG)
-    GEMINI_TEXT_MODEL:    str = "gemini-1.5-flash"
-    GEMINI_DEBRIEF_MODEL: str = "gemini-1.5-pro"
-    GEMINI_VISION_MODEL:  str = "gemini-1.5-pro"
-    GEMINI_EMBED_MODEL:   str = "models/text-embedding-004"
+    GEMINI_TEXT_MODEL:    str = "gemini-3.5-flash-lite"
+    GEMINI_DEBRIEF_MODEL: str = "gemini-3.8-flash"
+    GEMINI_VISION_MODEL:  str = "gemini-3.8-flash"
+    GEMINI_EMBED_MODEL:   str = "gemini-embedding-2"
 
     # ── Vision / AI Tuning ────────────────────────────────────────────────────
     # SLIDE_CHANGE_THRESHOLD   → engine.py VisionEngine._changed()  (pHash gate)
@@ -174,6 +177,8 @@ class Settings(BaseSettings):
             ✅ Zapier Connected      (1 webhook active)
             ════════════════════════════════════════
         """
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
         WIDTH = 52
         divider = "═" * WIDTH
 
@@ -236,13 +241,10 @@ class Settings(BaseSettings):
 
         # Print to stdout (visible in the terminal immediately on startup).
         # Force UTF-8 on Windows so ✅/❌ render correctly in PowerShell / CMD.
-        import io
-        utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-        utf8_stdout.write("\n".join(lines) + "\n")
-        utf8_stdout.flush()
+        print("\n".join(lines), flush=True)
 
         # Also warn and exit early if critical keys are missing in production
-        if self.APP_ENV.lower() == "production":
+        if self.APP_ENV.lower() == "production" and not self.DEMO_MODE:
             missing = []
             if not self.has_gemini:
                 missing.append("GOOGLE_API_KEY")

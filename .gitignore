@@ -13,3 +13,12 @@ venv/
 .venv/
 backend/.env
 renderer/.env.local
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.runtime/
+.env.*
+!.env.example
+!.env.production.example
+node_modules.partial/

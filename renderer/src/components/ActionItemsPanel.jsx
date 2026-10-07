@@ -203,7 +203,7 @@ function AssigneeLane({ name, items, palette, onToggle, onRemove }) {
 }
 
 // ── Main Panel ───────────────────────────────────────────────────────────────
-export default function ActionItemsPanel({ items, setItems }) {
+export default function ActionItemsPanel({ items, setItems, onToggle, onRemove }) {
   const [filter, setFilter] = useState('all');
 
   // Stable color assignment map
@@ -216,10 +216,12 @@ export default function ActionItemsPanel({ items, setItems }) {
   }
 
   const toggleDone = id => {
+    if (onToggle) return onToggle(id);
     setItems(prev => prev.map(i => i.id === id ? { ...i, done: !i.done, isNew: false } : i));
   };
 
   const removeItem = id => {
+    if (onRemove) return onRemove(id);
     setItems(prev => prev.filter(i => i.id !== id));
   };
 

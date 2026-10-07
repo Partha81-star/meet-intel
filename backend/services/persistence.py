@@ -38,8 +38,8 @@ async def persist_session(
         import os
 
         db = create_client(
-            os.environ["SUPABASE_URL"],
-            os.environ["SUPABASE_SERVICE_KEY"],
+            cfg.SUPABASE_URL,
+            cfg.SUPABASE_SERVICE_KEY,
         )
 
         sid  = session.get("id")

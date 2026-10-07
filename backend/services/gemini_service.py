@@ -19,7 +19,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
-import google.generativeai as genai
+from services import gemini_client as genai
 
 log = logging.getLogger("meetintel.gemini")
 
@@ -29,9 +29,10 @@ if _api_key:
     genai.configure(api_key=_api_key)
 
 # Model names (overridable via env)
-TEXT_MODEL   = os.getenv("GEMINI_TEXT_MODEL",   "gemini-1.5-flash")
-VISION_MODEL = os.getenv("GEMINI_VISION_MODEL",  "gemini-1.5-pro")
-EMBED_MODEL  = os.getenv("GEMINI_EMBED_MODEL",   "models/text-embedding-004")
+from config import cfg
+TEXT_MODEL   = cfg.GEMINI_TEXT_MODEL
+VISION_MODEL = cfg.GEMINI_VISION_MODEL
+EMBED_MODEL  = cfg.GEMINI_EMBED_MODEL
 
 
 # ─── Prompt templates ─────────────────────────────────────────────────────────

@@ -1,5 +1,9 @@
 # MeetIntel — AI-Powered Live Meeting Intelligence
 
+> **Updated full-stack setup:** See [SETUP.md](SETUP.md) for the supported local
+> launcher, persistent SQLite/PostgreSQL storage, Docker deployment, and current
+> AI configuration. The original demo notes below describe the earlier build.
+
 
 **A desktop application that listens to your live meetings, identifies speakers, extracts task assignments in real-time, and generates comprehensive meeting reports — all powered by Google Gemini and Deepgram.**
 

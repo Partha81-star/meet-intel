@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { Wifi, WifiOff, Timer, PauseCircle, Cpu } from 'lucide-react';
-import { MODELS } from '../lib/constants';
 
 function useElapsedTime(active) {
   const [elapsed, setElapsed] = useState(0);
@@ -26,7 +25,7 @@ function formatTime(seconds) {
     : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
-export default function StatusBar({ connected, sessionActive, sessionPaused, sessionId }) {
+export default function StatusBar({ connected, sessionActive, sessionPaused, sessionId, mode, models = {} }) {
   // Timer pauses when session is paused
   const elapsed = useElapsedTime(sessionActive && !sessionPaused);
 
@@ -40,7 +39,7 @@ export default function StatusBar({ connected, sessionActive, sessionPaused, ses
           : <WifiOff className="w-3.5 h-3.5 text-accent-red"   />
         }
         <span className={connected ? 'text-accent-green' : 'text-accent-red'}>
-          {connected ? 'Connected' : 'Offline'}
+          {connected ? 'Connected' : sessionActive ? 'Connecting' : ['demo', 'live'].includes(mode) ? 'Ready' : 'Offline'}
         </span>
       </div>
 
@@ -65,9 +64,9 @@ export default function StatusBar({ connected, sessionActive, sessionPaused, ses
       <div className="w-px h-3 bg-white/10" />
 
       {/* Model indicator */}
-      <div className="flex items-center gap-1.5" title={`${MODELS.text} STT / ${MODELS.vision} Vision`}>
+      <div className="flex items-center gap-1.5" title={mode === 'demo' ? 'Synthetic demo; AI providers are not called' : `${models.live_tasks || 'Gemini'} · ${models.vision || 'Vision'}`}>
         <Cpu className="w-3.5 h-3.5 text-brand-400" />
-        <span className="text-white/60">Gemini 1.5 · {MODELS.stt}</span>
+        <span className="text-white/60">{mode === 'demo' ? 'Demo' : 'Gemini · Deepgram'}</span>
       </div>
 
       {sessionId && (

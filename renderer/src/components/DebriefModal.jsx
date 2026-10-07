@@ -33,7 +33,7 @@ export default function DebriefModal({ debrief, onClose }) {
       ...(debrief.key_decisions || []).map(d => `• ${d}`),
       '',
       'RISKS',
-      ...(debrief.risks || []).map(r => `⚠ ${r}`),
+      ...(debrief.risks || []).map(r => `${r}`),
       '',
       'NEXT STEPS',
       ...(debrief.next_steps || []).map((s, i) => `${i + 1}. ${s}`),
@@ -118,7 +118,7 @@ export default function DebriefModal({ debrief, onClose }) {
   </style>
 </head>
 <body>
-  <h1>📋 MeetIntel — Meeting Intelligence Report</h1>
+  <h1>MeetIntel — Meeting Intelligence Report</h1>
   <div class="meta">
     <strong>${escape(session.title || 'Untitled Meeting')}</strong> &nbsp;·&nbsp;
     ${session.started_at ? new Date(session.started_at).toLocaleString() : ''}
@@ -145,7 +145,7 @@ export default function DebriefModal({ debrief, onClose }) {
         .then(result => {
           setPdfLoading(false);
           if (result && result.success) {
-            alert('✅ PDF saved!\n\n' + result.path);
+            alert('PDF saved!\n\n' + result.path);
           } else {
             // fallback to blob if IPC fails
             downloadAsBlob(html);
@@ -182,176 +182,20 @@ export default function DebriefModal({ debrief, onClose }) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    alert('📄 Report downloaded as HTML.\nOpen it in a browser and press Ctrl+P → Save as PDF.');
+    alert('Report downloaded as HTML.\nOpen it in a browser and press Ctrl+P → Save as PDF.');
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Post-call debrief"
-    >
-      <div className="relative w-full max-w-3xl max-h-[88vh] glass-card overflow-hidden flex flex-col">
-
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-brand-500/20 border border-brand-500/30 flex items-center justify-center">
-              <FileText className="w-4 h-4 text-brand-400" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-white">Post-Call Debrief</h2>
-              <p className="text-[10px] text-white/40">
-                {session.title || 'Meeting'} · {debrief.transcript_segments || 0} segments · {debrief.word_count || 0} words
-                {isMock && <span className="ml-2 text-accent-amber">(demo mode)</span>}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* PDF Button */}
-            <button
-              id="btn-debrief-pdf"
-              onClick={handleDownloadPdf}
-              disabled={pdfLoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-500/20 text-brand-400 hover:bg-brand-500/30 hover:text-brand-300 transition-all disabled:opacity-50"
-              aria-label="Download meeting report as PDF"
-            >
-              <Download className="w-3 h-3" />
-              {pdfLoading ? 'Generating…' : 'Download PDF'}
-            </button>
-
-            {/* Copy Button */}
-            <button
-              id="btn-debrief-copy"
-              onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-200 text-white/60 hover:bg-surface-300 hover:text-white transition-all"
-              aria-label="Copy debrief to clipboard"
-            >
-              {copied ? '✓ Copied!' : 'Copy'}
-            </button>
-
-            {/* Close */}
-            <button
-              id="btn-debrief-close"
-              onClick={onClose}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/5 transition-all"
-              aria-label="Close debrief"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Meeting debrief">
+      <div className="report-modal">
+        <div className="card-heading"><div><h2>Meeting debrief</h2><p>{session.title || 'Meeting'} · {debrief.transcript_segments || 0} segments · {debrief.word_count || 0} words {isMock && '· Demo report'}</p></div>
+          <div className="report-actions"><button className="button button-secondary" onClick={handleDownloadPdf} disabled={pdfLoading} aria-label="Download meeting report as PDF"><Download size={14} />{pdfLoading ? 'Preparing…' : 'Export report'}</button><button className="button button-secondary" onClick={handleCopy} aria-label="Copy debrief to clipboard">{copied ? 'Copied' : 'Copy'}</button><button className="icon-button" onClick={onClose} aria-label="Close debrief"><X size={18} /></button></div>
         </div>
-
-        {/* ── Scrollable body ── */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-
-          {/* Summary */}
-          {debrief.summary && (
-            <section aria-label="Meeting summary">
-              <h3 className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-2">Summary</h3>
-              <p className="text-sm text-white/80 leading-relaxed">{debrief.summary}</p>
-            </section>
-          )}
-
-          {/* Two-col: Decisions + Risks */}
-          <div className="grid grid-cols-2 gap-4">
-            {(debrief.key_decisions || []).length > 0 && (
-              <section aria-label="Key decisions">
-                <h3 className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3 h-3 text-accent-green" /> Key Decisions
-                </h3>
-                <ul className="space-y-1.5">
-                  {debrief.key_decisions.map((d, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-accent-green flex-shrink-0 mt-0.5" />
-                      <span className="text-xs text-white/70 leading-snug">{d}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {(debrief.risks || []).length > 0 && (
-              <section aria-label="Risks">
-                <h3 className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3 h-3 text-accent-amber" /> Risks
-                </h3>
-                <ul className="space-y-1.5">
-                  {debrief.risks.map((r, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <AlertTriangle className="w-3.5 h-3.5 text-accent-amber flex-shrink-0 mt-0.5" />
-                      <span className="text-xs text-white/70 leading-snug">{r}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </div>
-
-          {/* Next Steps */}
-          {(debrief.next_steps || []).length > 0 && (
-            <section aria-label="Next steps">
-              <h3 className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                <ArrowRight className="w-3 h-3 text-accent-cyan" /> Next Steps
-              </h3>
-              <ol className="space-y-1.5">
-                {debrief.next_steps.map((s, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="text-[10px] font-mono text-brand-400 flex-shrink-0 mt-0.5 w-4 text-right">{i + 1}.</span>
-                    <span className="text-xs text-white/70 leading-snug">{s}</span>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          )}
-
-          {/* Action Items */}
-          {(debrief.action_items || []).length > 0 && (
-            <section aria-label="Action items">
-              <h3 className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                <ListTodo className="w-3 h-3 text-brand-400" /> Action Items ({debrief.action_items.length})
-              </h3>
-              <div className="space-y-1.5">
-                {debrief.action_items.map((item, i) => {
-                  const pColor = {
-                    high:   'text-red-400   border-l-red-500   bg-red-500/5',
-                    medium: 'text-amber-400 border-l-amber-500 bg-amber-500/5',
-                    low:    'text-violet-400 border-l-violet-500 bg-violet-500/5',
-                  }[item.priority || 'medium'] || 'text-amber-400 border-l-amber-500 bg-amber-500/5';
-
-                  return (
-                    <div key={item.id || i} className={`flex items-start gap-3 px-3 py-2 rounded-lg border-l-2 ${pColor}`}>
-                      <Minus className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 opacity-50" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-white/80 leading-snug">{item.title}</p>
-                        {(item.assignee || item.due) && (
-                          <p className="text-[10px] text-white/40 mt-0.5">
-                            {item.assignee && <span>→ {item.assignee}</span>}
-                            {item.assignee && item.due && <span className="mx-1">·</span>}
-                            {item.due && <span>⏰ {item.due}</span>}
-                          </p>
-                        )}
-                      </div>
-                      <span className={`text-[9px] font-semibold uppercase tracking-wider flex-shrink-0 ${pColor.split(' ')[0]}`}>
-                        {item.priority || 'med'}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Notes */}
-          {debrief.notes && (
-            <section aria-label="Meeting notes">
-              <h3 className="text-[11px] font-semibold text-white/40 uppercase tracking-widest mb-2">Detailed Notes</h3>
-              <p className="text-xs text-white/60 leading-relaxed whitespace-pre-wrap">{debrief.notes}</p>
-            </section>
-          )}
+        <div className="report-content">
+          {debrief.summary && <section aria-label="Meeting summary"><h3>Executive summary</h3><p>{debrief.summary}</p></section>}
+          {[['Key decisions', debrief.key_decisions], ['Risks', debrief.risks], ['Next steps', debrief.next_steps]].map(([title, entries]) => entries?.length > 0 && <section key={title}><h3>{title}</h3><ul>{entries.map((entry, i) => <li key={i}>{entry}</li>)}</ul></section>)}
+          {debrief.action_items?.length > 0 && <section aria-label="Action items"><h3>Action items</h3>{debrief.action_items.map((item, i) => <div className="report-item" key={item.id || i}><strong>{item.title}</strong><small>{item.assignee || 'Unassigned'} · {item.due || 'No due date'} · {item.done ? 'Completed' : 'Open'}</small></div>)}</section>}
+          {debrief.notes && <section><h3>Meeting notes</h3><p>{debrief.notes}</p></section>}
         </div>
       </div>
     </div>

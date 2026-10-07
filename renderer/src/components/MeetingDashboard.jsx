@@ -22,7 +22,7 @@ import StatusBar        from './StatusBar';
 import DebriefModal     from './DebriefModal';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { API_BASE, websocketUrl } from '../lib/constants';
-import { Brain, LayoutDashboard } from 'lucide-react';
+import { LayoutDashboard, Mic, CheckSquare, History, Monitor, Layers, ArrowUpRight, Users, CalendarDays, FileText, ChevronRight } from 'lucide-react';
 
 export default function MeetingDashboard() {
   const [sessionActive,  setSessionActive]  = useState(false);
@@ -33,7 +33,7 @@ export default function MeetingDashboard() {
   const [slides,         setSlides]         = useState([]);
   const [debtItems,      setDebtItems]      = useState([]);
   const [debrief,        setDebrief]        = useState(null);
-  const [activeTab,      setActiveTab]      = useState('transcript');
+  const [activeTab,      setActiveTab]      = useState('overview');
   const ipcBound = useRef(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -72,6 +72,7 @@ export default function MeetingDashboard() {
       setSlides(data.slides); setDebrief(null);
       setSessionActive(['active', 'paused'].includes(data.session.status));
       setSessionPaused(data.session.status === 'paused');
+      setActiveTab('transcript');
     } catch (err) { setError(err.message); }
   };
 
@@ -224,153 +225,87 @@ export default function MeetingDashboard() {
     } catch (err) { setError(err.message); }
   };
 
-  const tabs = [
-    { id: 'transcript', label: 'Actions',      badge: actionItems.filter((i) => !i.done).length },
-    { id: 'slides',     label: 'Slides',        badge: slides.length },
-    { id: 'debt',       label: 'Meeting Debt',  badge: debtItems.length, warn: debtItems.length > 0 },
+  const navigation = [
+    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { id: 'transcript', label: 'Live transcript', icon: Mic },
+    { id: 'actions', label: 'Action items', icon: CheckSquare },
+    { id: 'history', label: 'Meeting history', icon: History },
+    { id: 'slides', label: 'Slide context', icon: Monitor },
+    { id: 'debt', label: 'Outstanding tasks', icon: Layers },
   ];
+  const selected = navigation.find(item => item.id === activeTab) || navigation[0];
+  const pending = actionItems.filter(item => !item.done).length;
+  const participants = participantNames.split(',').map(name => name.trim()).filter(Boolean);
+  const activeMeeting = history.find(meeting => meeting.id === sessionId);
+  const actionsPanel = <ActionItemsPanel items={actionItems} setItems={setActionItems} onToggle={toggleAction} onRemove={removeAction} />;
+  const setupForm = (
+    <section className="card setup-card" aria-label="Meeting setup">
+      <div className="card-heading"><div><h2>Start a meeting</h2><p>Set the context for your next conversation.</p></div><CalendarDays size={20} /></div>
+      <div className="form-grid">
+        <label className="field">Meeting title<input aria-label="Meeting title" value={meetingTitle} disabled={sessionActive} onChange={e => setMeetingTitle(e.target.value)} placeholder="e.g. Weekly product sync" /></label>
+        <label className="field">Organizer<input aria-label="Organizer" value={adminName} disabled={sessionActive} onChange={e => setAdminName(e.target.value)} /></label>
+        <label className="field field-wide">Participants<span className="field-hint">Separate names with commas</span><input aria-label="Participants" value={participantNames} disabled={sessionActive} onChange={e => setParticipantNames(e.target.value)} /></label>
+      </div>
+      <div className="setup-footer"><span>{mode === 'demo' ? 'Demo sessions use sample content. Your microphone stays off.' : 'Recording starts after you allow microphone access.'}</span>
+        {!sessionActive && <button className="button button-primary" disabled={busy || !['demo', 'live'].includes(mode)} onClick={handleStart}>Start session <ArrowUpRight size={15} /></button>}
+      </div>
+    </section>
+  );
+  const historyPanel = (
+    <section className="card" aria-label="Meeting history">
+      <div className="card-heading"><div><h2>{activeTab === 'history' ? 'All meetings' : 'Recent meetings'}</h2><p>Review transcripts and follow up on decisions.</p></div>
+        {activeTab !== 'history' && <button className="button button-text" onClick={() => setActiveTab('history')}>View all <ChevronRight size={15} /></button>}
+      </div>
+      {history.length ? <div className="table-scroll"><table className="meeting-table"><thead><tr><th>Meeting</th><th>Date</th><th>Participants</th><th>Status</th><th><span className="sr-only">Open</span></th></tr></thead>
+        <tbody>{(activeTab === 'history' ? history : history.slice(0, 5)).map(meeting => <tr key={meeting.id}>
+          <td><div className="meeting-name"><span className="document-icon"><FileText size={17} /></span><div><strong>{meeting.title}</strong><small>{meeting.admin || 'Meeting organizer'}</small></div></div></td>
+          <td>{new Date(meeting.started_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+          <td>{meeting.participants?.length || 0} people</td><td><span className={`pill ${meeting.status === 'active' ? 'pill-green' : 'pill-neutral'}`}>{meeting.status === 'ended' ? 'Completed' : meeting.status}</span></td>
+          <td><button className="icon-button" aria-label={`Open ${meeting.title}`} disabled={sessionActive || busy} onClick={() => restoreMeeting(meeting.id)}><ChevronRight size={18} /></button></td>
+        </tr>)}</tbody></table></div> : <div className="empty-state"><History size={28} /><h3>Your meeting history starts here</h3><p>Completed meetings are saved for you to revisit.</p></div>}
+    </section>
+  );
 
   return (
-    <div className="flex flex-col h-screen bg-surface text-white overflow-hidden">
-
-      {/* ── Debrief Modal overlay ──────────────────────────────────────────── */}
-      {debrief && (
-        <DebriefModal debrief={debrief} onClose={() => setDebrief(null)} />
-      )}
-
-      {/* ── Top bar ──────────────────────────────────────────────── */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-white/5 bg-surface-50/80 backdrop-blur-sm flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Brain className="w-7 h-7 text-brand-400" />
-            {sessionActive && !sessionPaused && (
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent-red animate-pulse" />
-            )}
-            {sessionPaused && (
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-accent-amber" />
-            )}
+    <div className="app-shell">
+      {debrief && <DebriefModal debrief={debrief} onClose={() => setDebrief(null)} />}
+      <aside className="sidebar">
+        <div className="brand"><span className="brand-mark">m<span>.</span></span><div><strong>MeetIntel</strong><small>Meeting workspace</small></div></div>
+        <div className="workspace-label">WORKSPACE</div>
+        <nav aria-label="Main navigation">{navigation.map(item => {
+          const Icon = item.icon;
+          return <button key={item.id} className={`nav-item ${activeTab === item.id ? 'active' : ''}`} onClick={() => setActiveTab(item.id)} aria-label={item.label} title={item.label} aria-current={activeTab === item.id ? 'page' : undefined}>
+            <Icon size={18} /><span>{item.label}</span>{item.id === 'actions' && pending > 0 && <span className="nav-count">{pending}</span>}
+          </button>;
+        })}</nav>
+        <div className="sidebar-bottom"><div className="workspace-note"><span className="status-dot" /><strong>One workspace. Clear outcomes.</strong><p>Keep conversations, decisions, and follow-ups together.</p></div><div className="workspace-profile"><span className="avatar">MI</span><div><strong>Personal workspace</strong><small>{mode === 'demo' ? 'Demo environment' : 'Meeting intelligence'}</small></div></div></div>
+      </aside>
+      <div className="main-shell">
+        <header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14} /><strong>{selected.label}</strong></div><StatusBar connected={connected} sessionActive={sessionActive} sessionPaused={sessionPaused} sessionId={sessionId} mode={mode} models={models} /></header>
+        <main className="workspace-content">
+          <div className="page-heading"><div><div className="eyebrow">MEETING INTELLIGENCE</div><h1>{selected.label}</h1><p>{activeTab === 'overview' ? 'A clearer view of your conversations and what comes next.' : activeTab === 'transcript' ? (activeMeeting?.title || 'Follow your conversation as it happens.') : activeTab === 'actions' ? 'Turn meeting commitments into clear next steps.' : activeTab === 'history' ? 'Every conversation, organized and available to revisit.' : activeTab === 'slides' ? 'Supporting context captured during your meetings.' : 'Follow up on commitments from previous meetings.'}</p></div>
+            <MeetingControls sessionActive={sessionActive} sessionPaused={sessionPaused} disabled={busy || !['demo', 'live'].includes(mode)} onStart={handleStart} onPause={handlePause} onStop={handleStop} />
           </div>
-          <div>
-            <h1 className="text-base font-semibold gradient-text tracking-tight leading-none">MeetIntel</h1>
-            <p className="text-[10px] text-white/40 mt-0.5">AI Meeting Intelligence</p>
-          </div>
-        </div>
-
-        <StatusBar
-          mode={mode}
-          models={models}
-          connected={connected}
-          sessionActive={sessionActive}
-          sessionPaused={sessionPaused}
-          sessionId={sessionId}
-        />
-
-        <MeetingControls
-          disabled={busy || mode === 'loading' || mode === 'offline'}
-          sessionActive={sessionActive}
-          sessionPaused={sessionPaused}
-          onStart={handleStart}
-          onPause={handlePause}
-          onStop={handleStop}
-        />
-      </header>
-
-      <div className="px-6 py-3 border-b border-white/10 space-y-2">
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className={mode === 'demo' ? 'text-amber-300' : 'text-emerald-300'}>
-            {mode === 'demo' ? 'Demo mode · synthetic meeting · microphone off' : mode === 'live' ? 'Live mode · microphone permission required' : 'Connecting to backend…'}
-          </span>
-          {busy && <span role="status">Processing…</span>}
-          <label className="ml-auto">Meeting history
-            <select aria-label="Meeting history" className="ml-2 bg-surface-100 rounded px-2 py-1 max-w-64"
-              value={sessionId || ''} disabled={sessionActive || busy}
-              onChange={event => event.target.value && restoreMeeting(event.target.value)}>
-              <option value="">Select a meeting</option>
-              {history.map(meeting => <option key={meeting.id} value={meeting.id}>{meeting.title} · {meeting.status}</option>)}
-            </select>
-          </label>
-        </div>
-        {!sessionActive && <div className="flex flex-wrap gap-3 text-xs">
-          <label>Title <input aria-label="Meeting title" className="bg-surface-100 rounded px-2 py-1" value={meetingTitle} onChange={e => setMeetingTitle(e.target.value)} /></label>
-          <label>Organizer <input aria-label="Organizer" className="bg-surface-100 rounded px-2 py-1" value={adminName} onChange={e => setAdminName(e.target.value)} /></label>
-          <label className="flex-1">Participants <input aria-label="Participants" className="bg-surface-100 rounded px-2 py-1 w-full sm:w-80" value={participantNames} onChange={e => setParticipantNames(e.target.value)} /></label>
-        </div>}
-        {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+          <div className="environment-notice"><span className={`pill ${mode === 'demo' ? 'pill-blue' : 'pill-green'}`}>{mode === 'demo' ? 'Demo mode' : mode === 'live' ? 'Live mode' : 'Connecting'}</span><span>{mode === 'demo' ? 'Explore with a sample meeting. No audio is recorded.' : mode === 'live' ? 'Your microphone is used only during an active session.' : 'Waiting for the meeting service.'}</span>{busy && <span className="processing" role="status">Processing…</span>}</div>
+          {error && <div role="alert" className="error-notice">{error}<button className="button button-text" onClick={() => setError('')}>Dismiss</button></div>}
+          {activeTab === 'overview' && <>
+            <div className="stats-grid">{[
+              { label: 'Saved meetings', value: history.length, detail: 'Your conversation archive', icon: CalendarDays },
+              { label: 'Open action items', value: pending, detail: 'In the selected meeting', icon: CheckSquare },
+              { label: 'Participants', value: activeMeeting?.participants?.length || participants.length, detail: 'Ready to collaborate', icon: Users },
+              { label: 'Transcript segments', value: transcript.filter(item => !item.interim).length, detail: 'Captured in this session', icon: FileText },
+            ].map(stat => { const Icon = stat.icon; return <article className="stat-card" key={stat.label}><div className="stat-top"><span>{stat.label}</span><Icon size={18} /></div><strong>{stat.value.toString().padStart(2, '0')}</strong><small>{stat.detail}</small></article>; })}</div>
+            {setupForm}{historyPanel}
+          </>}
+          {activeTab === 'transcript' && <div className="live-grid"><section className="card transcript-card"><div className="card-heading"><div><h2>Live transcript</h2><p>{sessionPaused ? 'Recording paused' : sessionActive ? 'Connected to the current session' : 'Selected meeting transcript'}</p></div><span className={`pill ${sessionActive ? 'pill-green' : 'pill-neutral'}`}>{sessionPaused ? 'Paused' : sessionActive ? 'Active session' : 'Saved transcript'}</span></div><LiveTranscript transcript={transcript} sessionActive={sessionActive && !sessionPaused} /></section><section className="card">{actionsPanel}</section></div>}
+          {activeTab === 'actions' && <section className="card">{actionsPanel}</section>}
+          {activeTab === 'history' && historyPanel}
+          {activeTab === 'slides' && <section className="card"><SlideGallery slides={slides} /></section>}
+          {activeTab === 'debt' && <section className="card"><DebtLog items={debtItems} setItems={setDebtItems} sessionActive={sessionActive} /></section>}
+          <footer className="page-footer"><span>MeetIntel workspace</span><span>Conversations with a clear next step</span></footer>
+        </main>
       </div>
-
-      {/* ── Main layout ──────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
-
-        {/* Left: Live Transcript (always visible) */}
-        <div className="flex flex-col w-[38%] min-w-[240px] flex-shrink-0 border-r border-white/5">
-          <div className="px-4 pt-4 pb-2 flex items-center gap-2">
-            <LayoutDashboard className="w-4 h-4 text-brand-400" />
-            <span className="text-sm font-medium text-white/80">Live Transcript</span>
-            {sessionActive && !sessionPaused && <span className="recording-dot ml-auto" />}
-            {sessionPaused && (
-              <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-semibold bg-accent-amber/20 text-accent-amber uppercase tracking-wider">
-                Paused
-              </span>
-            )}
-          </div>
-          <LiveTranscript transcript={transcript} sessionActive={sessionActive && !sessionPaused} />
-        </div>
-
-        <div className="panel-divider" />
-
-        {/* Right: Tabbed panels */}
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Tab bar */}
-          <div className="flex items-center gap-1 px-4 pt-3 pb-0 border-b border-white/5 flex-shrink-0">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                id={`tab-${tab.id}`}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
-                  activeTab === tab.id
-                    ? 'bg-surface-100 text-white border border-white/10 border-b-transparent -mb-px'
-                    : 'text-white/40 hover:text-white/70'
-                }`}
-              >
-                {tab.label}
-                {tab.badge > 0 && (
-                  <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
-                    tab.warn ? 'bg-accent-amber/20 text-accent-amber' : 'bg-brand-500/20 text-brand-400'
-                  }`}>
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab content */}
-          <div className="flex-1 overflow-hidden">
-            {activeTab === 'transcript' && (
-              <ActionItemsPanel items={actionItems} setItems={setActionItems} onToggle={toggleAction} onRemove={removeAction} />
-            )}
-            {activeTab === 'slides' && (
-              <SlideGallery slides={slides} />
-            )}
-            {activeTab === 'debt' && (
-              <DebtLog
-                items={debtItems}
-                setItems={setDebtItems}
-                sessionActive={sessionActive}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Hidden: CaptureEngine (pure logic, renders nothing visible) ─── */}
-      <CaptureEngine
-        sessionActive={sessionActive && !sessionPaused && mode === 'live' && connected}
-        onError={setError}
-        onAudioChunk={sendAudioChunk}
-        sessionId={sessionId}
-      />
+      <CaptureEngine sessionActive={sessionActive && !sessionPaused && mode === 'live' && connected} onError={setError} onAudioChunk={sendAudioChunk} sessionId={sessionId} />
     </div>
   );
 }

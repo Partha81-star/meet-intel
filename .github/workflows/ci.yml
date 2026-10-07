@@ -33,10 +33,12 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql+psycopg://meetintel:integration-only@localhost:5432/meetintel
       - run: npm ci --prefix renderer && npm run build --prefix renderer
-      - run: python deployment/setup.py
+      - run: python deployment/setup.py > "$RUNNER_TEMP/meetintel-setup.txt"
       - run: docker compose config --quiet && docker compose up --build -d --wait
       - name: Verify gateway requires authentication
         run: test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost)" = "401"
+      - name: Verify deployed meeting flow through gateway
+        run: python deployment/verify.py --credentials-file "$RUNNER_TEMP/meetintel-setup.txt"
       - name: Container logs on failure
         if: failure()
         run: docker compose logs --tail 100
